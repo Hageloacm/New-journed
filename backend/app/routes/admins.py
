@@ -1,0 +1,43 @@
+from fastapi import APIRouter, Depends, HTTPException, Header
+from ..database import admins_col
+from ..schemas import AdminCreate, AdminOut
+from ..utils.security import hash_password, decode_token
+from ..config import OWNER_PHONE
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+def get_requester_phone(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Token required")
+    token = authorization.split(" ")[1]
+    payload = decode_token(token)
+    return payload.get("sub")
+
+@router.post("/create", response_model=AdminOut)
+async def create_admin(payload: AdminCreate, requester=Depends(get_requester_phone)):
+    # Somente o owner pode adicionar/remover admins
+    if requester != OWNER_PHONE:
+        raise HTTPException(status_code=403, detail="Somente o owner pode criar administradores")
+    exists = await admins_col.find_one({"phone": payload.phone})
+    if exists:
+        raise HTTPException(status_code=400, detail="Admin já existe")
+    hashed = hash_password(payload.password)
+    admin_doc = {
+        "phone": payload.phone,
+        "name": payload.name,
+        "hashed_password": hashed,
+        "role": payload.role,
+    }
+    await admins_col.insert_one(admin_doc)
+    return {"phone": payload.phone, "name": payload.name, "role": payload.role}
+
+@router.delete("/{phone}")
+async def remove_admin(phone: str, requester=Depends(get_requester_phone)):
+    if requester != OWNER_PHONE:
+        raise HTTPException(status_code=403, detail="Somente o owner pode remover administradores")
+    if phone == OWNER_PHONE:
+        raise HTTPException(status_code=400, detail="Não podes remover o owner")
+    result = await admins_col.delete_one({"phone": phone})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Admin não encontrado")
+    return {"detail": "Admin removido"}
