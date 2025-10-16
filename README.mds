@@ -1,0 +1,17 @@
+# OLAF Admin (MVP)
+
+## Requisitos
+- Docker & docker-compose
+- Node 18+ (frontend)
+- Python 3.10+
+
+## Rodar em dev com Docker
+1. Copiar `.env.example` para `.env` e ajustar variáveis.
+2. `docker-compose up --build`
+3. Backend disponível em `http://localhost:8000`
+4. Frontend: cd frontend && npm install && npm run dev
+
+## Notas
+- Owner inicial: definir `OWNER_PHONE` no .env.
+- Trocar secret JWT em produção.
+- Para deploy no CodeMagic, configurar build steps para backend e frontend e variáveis de ambiente.
