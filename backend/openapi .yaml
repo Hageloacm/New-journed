@@ -1,0 +1,351 @@
+openapi: 3.0.3
+info:
+  title: OLAF Core API
+  version: 0.2.0
+  description: API principal do OLAF Bank — endpoints de admin, users, transactions, sync e FX.
+servers:
+  - url: https://api.olafbank.local/v1
+    description: Local dev
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          type: string
+        password:
+          type: string
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        role:
+          type: string
+
+    AdminCreate:
+      type: object
+      required: [phone,password]
+      properties:
+        phone:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [owner,admin]
+
+    AdminOut:
+      type: object
+      properties:
+        phone: { type: string }
+        name: { type: string }
+        role: { type: string }
+
+    UserCreate:
+      type: object
+      required: [phone]
+      properties:
+        phone: { type: string }
+        name: { type: string }
+
+    Account:
+      type: object
+      properties:
+        currency: { type: string }
+        available_balance: { type: number }
+        reserved_balance: { type: number }
+
+    UserOut:
+      type: object
+      properties:
+        phone: { type: string }
+        name: { type: string }
+        kyc_verified: { type: boolean }
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+
+    TransactionRequest:
+      type: object
+      required: [from_phone,to_phone,amount]
+      properties:
+        from_phone: { type: string }
+        to_phone: { type: string }
+        amount: { type: number }
+        currency: { type: string, default: "AKZ" }
+        tx_type: { type: string, enum: ["transfer","cashout","agent_deposit"], default:"transfer" }
+        note: { type: string }
+
+    TransactionOut:
+      type: object
+      properties:
+        txid: { type: string }
+        from_phone: { type: string }
+        to_phone: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        fee: { type: number }
+        status: { type: string, enum: ["PENDING","COMMITTED","REVERSED"] }
+        created_at: { type: string, format: date-time }
+
+    SyncBatch:
+      type: object
+      required: [device_id, transactions]
+      properties:
+        device_id: { type: string }
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionRequest'
+
+    FXRate:
+      type: object
+      properties:
+        base: { type: string }
+        quote: { type: string }
+        rate: { type: number }
+        timestamp: { type: string, format: date-time }
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Admin login / obter token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: token válido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: credenciais inválidas
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /admin/create:
+    post:
+      tags: [admin]
+      summary: Criar um novo admin (somente owner)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreate'
+      responses:
+        '201':
+          description: admin criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOut'
+        '403':
+          description: apenas owner
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /admin:
+    get:
+      tags: [admin]
+      summary: Listar admins (owner/admin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: lista de admins
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminOut'
+
+  /admin/{phone}:
+    delete:
+      tags: [admin]
+      summary: Remover admin (owner)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200': { description: removido }
+        '403': { description: proibido }
+        '404': { description: não encontrado }
+
+  /users/create:
+    post:
+      tags: [users]
+      summary: Criar usuário (público)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: usuário criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserOut'
+
+  /users/balance/{phone}:
+    get:
+      tags: [users]
+      summary: Obter saldo e contas de um usuário
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: contas do usuário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserOut'
+        '404': { description: não encontrado }
+
+  /users/transfer:
+    post:
+      tags: [users]
+      summary: Transferência online entre usuários
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '200':
+          description: transação executada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionOut'
+        '400': { description: erro de validação }
+
+  /transactions:
+    get:
+      tags: [transactions]
+      summary: Listar transações (admin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: lista transações
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TransactionOut'
+
+    post:
+      tags: [transactions]
+      summary: Criar transação genérica (admin/test)
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '201':
+          description: transação criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionOut'
+
+  /sync/batch:
+    post:
+      tags: [sync]
+      summary: Enviar lote de transações (offline -> server)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncBatch'
+      responses:
+        '200':
+          description: lote processado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed_count: { type: integer }
+                  errors: { type: array, items: { type: string } }
+
+  /agents/register:
+    post:
+      tags: [agents]
+      summary: Registrar agente (admin)
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_id: { type: string }
+                location: { type: string }
+      responses:
+        '201': { description: agente registado }
+
+  /fx/rates:
+    get:
+      tags: [fx]
+      summary: Obter taxas de câmbio atuais (base AKZ)
+      responses:
+        '200':
+          description: taxas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FXRate'
+
+security:
+  - BearerAuth: []
