@@ -1,0 +1,50 @@
+"""
+Módulo de regras de cobrança e instrumento de receitas.
+Implementa as fontes de receita definidas: transações, spread cambial,
+comissões de agentes, assinaturas premium e marketplace.
+"""
+
+from decimal import Decimal, ROUND_HALF_UP
+
+# parâmetros iniciais — podes tornar configuráveis via DB/admin
+BASE_TAX_RATE = Decimal("0.006")   # 0.6% média
+CASHBACK_RATE = Decimal("0.002")   # 0.2% devolvido ao usuário
+AGENT_COMMISSION_RATE = Decimal("0.015")  # 1.5% paga ao agente por operação cash-out
+SPREAD_CURRENCY = Decimal("0.003")  # 0.3% embutido no câmbio
+PREMIUM_MONTHLY_FEE_GOLD = Decimal("1000")  # Kz ex.
+PREMIUM_MONTHLY_FEE_CAMANGA = Decimal("10000")
+
+def quantize(value):
+    return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+def compute_transaction_fee(amount: float, tx_type: str = "transfer", currency: str = "AKZ", user_type: str = "standard"):
+    """
+    Calcula a fee bruta aplicada à transação.
+    Pode ajustar por tipo, moeda e perfil do usuário.
+    Retorna (fee_amount, net_amount_to_credit, cashback_amount, agent_cut)
+    """
+    amt = Decimal(str(amount))
+    base = BASE_TAX_RATE
+
+    # Ajuste por tipo ou moeda
+    if currency != "AKZ":
+        # taxas ligeiramente maiores para moedas estrangeiras
+        base += Decimal("0.002")  # +0.2%
+    if tx_type == "cashout":
+        base += Decimal("0.004")  # +0.4% para levantamentos
+    if user_type == "gold":
+        base -= Decimal("0.001")  # desconto 0.1%
+    if user_type == "camanga":
+        base -= Decimal("0.002")  # desconto 0.2%
+
+    fee = quantize(amt * base)
+    cashback = quantize(amt * CASHBACK_RATE)
+    agent_cut = quantize(amt * AGENT_COMMISSION_RATE) if tx_type in ["cashout","agent_deposit"] else Decimal("0.00")
+    net = quantize(amt - fee)
+    return {
+        "fee": float(fee),
+        "net": float(net),
+        "cashback": float(cashback),
+        "agent_cut": float(agent_cut),
+        "applied_rate": float(base)
+    }
